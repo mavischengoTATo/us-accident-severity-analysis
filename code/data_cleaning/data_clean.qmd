@@ -1,0 +1,109 @@
+---
+title: "Data Clean"
+author: Zijing Cheng(zc233)
+format: 
+  html:
+    code-fold: true
+---
+
+```{r ,echo=FALSE, message=FALSE, warning=FALSE}
+library(flipbookr)
+
+library(tidyverse)
+
+library(ggplot2)
+
+library(forecast)
+
+library(astsa) 
+
+library(xts)
+
+library(tseries)
+
+library(fpp2)
+
+library(fma)
+
+library(lubridate)
+
+library(tidyverse)
+
+library(TSstudio)
+
+library(quantmod)
+
+library(tidyquant)
+
+library(plotly)
+
+library(ggplot2)
+
+library(gridExtra)
+
+library(fGarch)
+```
+
+Here, we use the data from 2020 to 2021
+
+```{r}
+# Read in the US accidents data from a CSV file
+acc <- read.csv("US_Accidents_Dec21_updated.csv")
+
+# Convert the "Start_Time" column to a date format and create a new "Time" column
+acc <- acc %>% 
+  mutate(Time = as.Date(substr(Start_Time, 1, 10))) %>%   # Extract the date portion of the "Start_Time" column and convert to date format
+  filter(Time >= "2020-01-01" & Time < "2022-01-01")      # Filter for accidents that occurred between 2020-01-01 and 2022-01-01
+```
+
+Transfer the variable type and add new variable `Start_Hour`, `Start_month`, and `Last_Time` to record the accident happens at which hours in a day and the month, also how long it lasted from the start time to the end time , when the impact of accident on traffic flow, which measured by hours.
+
+
+```{r}
+# Create a new data frame `acc_clean` from the `acc` data frame
+acc_clean <- acc %>% 
+  mutate(Start_Hour = substr(Start_Time, 12, 13),          # Extract the hour portion of the "Start_Time" column
+         Start_Month = substr(Start_Time, 6, 7),           # Extract the month portion of the "Start_Time" column
+         Start_Date = as.Date(substr(Start_Time, 1, 10)))  # Extract the date portion of the "Start_Time" column and convert to date format
+  %>% 
+  dplyr::select(-c(Description, Number, Timezone, Airport_Code, Weather_Timestamp, Country, Time))  # Drop unnecessary columns
+
+# Drop rows with missing values
+acc_clean <- acc_clean %>% drop_na()
+
+# Convert columns to appropriate data types
+acc_clean <- acc_clean %>% 
+  mutate(Start_Time = as.POSIXlt(Start_Time),   # Convert "Start_Time" column to POSIXlt format
+         End_Time = as.POSIXlt(End_Time),       # Convert "End_Time" column to POSIXlt format
+         Side = as.factor(Side),                # Convert "Side" column to a factor
+         Wind_Direction = as.factor(Wind_Direction),            # Convert "Wind_Direction" column to a factor
+         Weather_Condition = as.factor(Weather_Condition),        # Convert "Weather_Condition" column to a factor
+         Amenity = as.factor(Amenity),          # Convert "Amenity" column to a factor
+         Bump = as.factor(Bump),                # Convert "Bump" column to a factor
+         Crossing = as.factor(Crossing),        # Convert "Crossing" column to a factor
+         Give_Way = as.factor(Give_Way),        # Convert "Give_Way" column to a factor
+         Junction = as.factor(Junction),        # Convert "Junction" column to a factor
+         No_Exit = as.factor(No_Exit),          # Convert "No_Exit" column to a factor
+         Railway = as.factor(Railway),          # Convert "Railway" column to a factor
+         Roundabout = as.factor(Roundabout),    # Convert "Roundabout" column to a factor
+         Station = as.factor(Station),          # Convert "Station" column to a factor
+         Stop = as.factor(Stop),                # Convert "Stop" column to a factor
+         Traffic_Calming = as.factor(Traffic_Calming),    # Convert "Traffic_Calming" column to a factor
+         Traffic_Signal = as.factor(Traffic_Signal),      # Convert "Traffic_Signal" column to a factor
+         Sunrise_Sunset = as.factor(Sunrise_Sunset),      # Convert "Sunrise_Sunset" column to a factor
+         Civil_Twilight = as.factor(Civil_Twilight),      # Convert "Civil_Twilight" column to a factor
+         Nautical_Twilight = as.factor(Nautical_Twilight),# Convert "Nautical_Twilight" column to a factor
+         Astronomical_Twilight = as.factor(Astronomical_Twilight), # Convert "Astronomical_Twilight" column to a factor
+         Start_Hour = as.numeric(Start_Hour),   # Convert "Start_Hour" column to numeric format
+         Start_Month = as.numeric(Start_Month)) # Convert "Start_Month"
+acc_clean = acc_clean%>%dplyr::select(-Turning_Loop)%>%mutate(Last_Time = difftime(End_Time,Start_Time, units = "hours")) # As Turning only contains one level: False, we delete it.
+```
+
+
+Here, as the cleaned data is too large to upload to GitHub, we divided them into two parts.
+```{r}
+acc_clean20 = acc_clean%>%filter(Start_Time<"2021-01-01")
+acc_clean21_01 = acc_clean%>%filter(Start_Time>="2021-01-01"&Start_Time<"2021-07-01")
+acc_clean21_02 = acc_clean%>%filter(Start_Time>="2021-07-01")
+```
+

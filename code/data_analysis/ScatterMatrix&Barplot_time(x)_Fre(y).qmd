@@ -1,0 +1,299 @@
+---
+title: "ScatterMatrix & Barplot"
+  - name: Nianqing Chen 
+    affiliations:
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    embed-resources: true
+    theme: cosmo
+    code-fold: true
+    code-copy: true
+    code-line-numbers: true
+    number-sections: true
+    highlight-style: github
+reference-location: margin
+---
+
+```{r ,echo=FALSE, message=FALSE, warning=FALSE}
+#### Load necessary package
+library(tidyverse)
+library(plotly)
+library(ggplot2)
+library(caret)
+library(e1071)
+library(randomForest)
+library(nnet)
+library(gbm)
+library(MASS)
+library(rpart)
+library(ROCR)
+library(MLmetrics)
+
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+##### read need datasets
+source = read.csv("../../data/clean_data/clean_data_2020.csv")
+source1=read.csv("../../data/clean_data/clean_data_2021_01.csv")
+source2=read.csv("../../data/clean_data/clean_data_2021_02.csv")
+```
+
+```{r}
+
+library(stringr)
+
+# Use the mutate function to create a new column "time" that extracts the time (hh:mm:ss) from the "Start_Time" column.
+# We use the str_sub function to extract the substring starting from the 12th character and ending at the 19th character,
+# which corresponds to the time value in the "Start_Time" column.
+
+
+source <- source %>%
+  mutate(time= str_sub(Start_Time, start = 12, end = 19)) 
+
+
+
+```
+
+
+```{r}
+
+##### combind 2021 dataset 
+c_df=rbind(source1,source2)
+```
+
+
+```{r}
+
+# Use the mutate function to create a new column "time" that extracts the time (hh:mm:ss) from the "Start_Time" column.
+# We use the str_sub function to extract the substring starting from the 12th character and ending at the 19th character,
+# which corresponds to the time value in the "Start_Time" column.
+
+c_df <- c_df %>%
+  mutate(time= str_sub(Start_Time, start = 12, end = 19)) # 将字符串切片为前三个字符并替换原始值
+
+```
+
+```{r}
+##### Create a vector of unique time values from the "time" column of the "sourcef" data frame
+#### Create a vector of unique time values from the "time" column of the "c_df" data frame
+
+Time_list=unique(source$time)
+Time_list1=unique(c_df$time)
+
+```
+
+
+```{r}
+###Convert the character vector of unique time values to POSIXct format
+time_vec <- strptime(Time_list, format = "%H:%M:%S")
+####Generate a sequence of hourly timestamps for the entire day
+time_seq <- seq(from = as.POSIXct("00:00:00", format = "%H:%M:%S"),
+                to = as.POSIXct("23:59:59", format = "%H:%M:%S"), by = "hour")
+
+##Categorize each time value into an hourly interval using the cut function
+cuts <- cut.POSIXt(time_vec, breaks = time_seq, include.lowest = TRUE)
+
+
+
+###Convert the table of counts for each interval into a data frame and extract the hour values from the interval labels
+TT=as.data.frame(table(cuts))
+
+TT <- TT %>%
+  mutate(time= str_sub(cuts, start = 11, end = 19)) #
+
+TT
+
+```
+
+```{r}
+
+###Convert the character vector of unique time values to POSIXct format
+time_vec1 <- strptime(Time_list1, format = "%H:%M:%S")
+
+
+####Generate a sequence of hourly timestamps for the entire day
+time_seq1 <- seq(from = as.POSIXct("00:00:00", format = "%H:%M:%S"),
+                to = as.POSIXct("23:59:59", format = "%H:%M:%S"), by = "hour")
+
+
+
+##Categorize each time value into an hourly interval using the cut function
+cuts1 <- cut.POSIXt(time_vec1, breaks = time_seq1, include.lowest = TRUE)
+
+
+
+###Convert the table of counts for each interval into a data frame and extract the hour values from the interval labels
+TT1=as.data.frame(table(cuts1))
+
+TT1 <- TT1 %>%
+  mutate(time= str_sub(cuts1, start = 11, end = 19)) #
+
+TT1
+```
+
+
+
+```{r}
+library(ggplot2)
+###Define a vector of custom colors
+my_colors <- c("#4A235A", "#D35400", "#145A32", "#117A65", "#F1C40F", "#884EA0",
+                "#229954", "#BA4A00", "#1F618D", "#28B463", "#F5B041", "#566573",
+                "#1B4F72", "#F39C12", "#0E6251", "#6C3483", "#7F8C8D", "#E67E22",
+                "#BDC3C7", "#C0392B", "#2980B9", "#17A589", "#FFA07A", "#512E5F")
+
+
+g1=ggplot(TT1, aes(x = time, y = Freq, fill = time)) + ##Create a ggplot2 object and specify the data and mapping
+  geom_col(color = "black", size = 0.5, alpha = 0.8, position = "dodge", width = 0.6) + ##Add a column chart layer with custom aesthetics and position
+  scale_fill_manual(values = my_colors) + ##Set the fill colors to the custom colors vector
+  theme_minimal() +##Set the theme to minimal
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + ###Rotate the x-axis labels by 90 degrees, adjust the vertical and horizontal justification
+  labs(title = "Hourly Car Accidents Distribution in 2021", x = "Time", y = "Sum Of Car Accidents") ##Add a title and label the axes
+
+
+```
+
+
+```{r}
+###Define a vector of custom colors
+my_colors <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+                "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#8dd3c7", "#ffffb3",
+                "#bebada", "#fb8072", "#80b1d3", "#fdb462", "#b3de69", "#fccde5",
+                "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f", "#ff9896", "#8c6d31")
+g0=ggplot(TT, aes(x = time, y = Freq, fill = time)) +##Create a ggplot2 object and specify the data and mapping
+  geom_col(color = "black", size = 0.5, alpha = 0.8, position = "dodge", width = 0.6) +##Add a column chart layer with custom aesthetics and position
+  scale_fill_manual(values = my_colors) +##Set the fill colors to the custom colors vector
+  theme_minimal() +##Set the theme to minimal
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +###Rotate the x-axis labels by 90 degrees, adjust the vertical and horizontal justification
+  labs(title = "Hourly Car Accidents Distribution in 2020", x = "Time", y = "Sum Of Car Accidents") ##Add a title and label the axes
+ ### Save two figure to png files
+ggsave("hourly_car_accidents_2021.png", plot = g1, width = 10, height = 8)
+ggsave("hourly_car_accidents_2020.png", plot = g0, width = 10, height = 8)
+
+
+```
+
+
+
+
+
+
+```{r}
+df_2020 <- subset(source, select = -c(X, ID, Start_Time, End_Time, Start_Lat, Start_Lng, End_Lat, End_Lng, Street, City, County, Zipcode, Precipitation.in., Civil_Twilight, Nautical_Twilight, Astronomical_Twilight, Start_Hour, Start_Month, Start_Date))
+
+df_2021=subset(source1, select = -c(X, ID, Start_Time, End_Time, Start_Lat, Start_Lng, End_Lat, End_Lng, Street, City, County, Zipcode, Precipitation.in., Civil_Twilight, Nautical_Twilight, Astronomical_Twilight, Start_Hour, Start_Month, Start_Date))
+
+df_2021_1=subset(source2, select = -c(X, ID, Start_Time, End_Time, Start_Lat, Start_Lng, End_Lat, End_Lng, Street, City, County, Zipcode, Precipitation.in., Civil_Twilight, Nautical_Twilight, Astronomical_Twilight, Start_Hour, Start_Month, Start_Date))
+
+
+# Specify the columns to convert to factors
+cols <- c("Severity","Side","Amenity", "Bump", "Crossing", "Give_Way", "Junction","No_Exit","Railway","Roundabout","Station","Stop","Traffic_Calming","Traffic_Signal","Sunrise_Sunset")
+
+# Convert the columns to factors
+df_2020[cols] <- lapply(df_2020[cols], factor)
+df_2021[cols]=lapply(df_2021[cols],factor)
+df_2021_1[cols]=lapply(df_2021_1[cols],factor)
+
+
+
+```
+
+
+```{r}
+#### Merged 2021 Dataset
+df_merged_2021=rbind(df_2021,df_2021_1)
+```
+
+
+
+```{r}
+#### mapping the weather conditions so reduce the calcualtion load
+#### This function maps different weather conditions to 7 broad categories of weather conditions.
+map_weather_conditions <- function(condition) {
+  if (grepl("Snow|Sleet|Freezing|Ice|Blowing Snow|Drifting Snow", condition)) {
+    return("Snow/Ice")
+  } else if (grepl("Rain|Drizzle|Shower|T-Storm", condition)) {
+    return("Rain")
+  } else if (grepl("Thunder|Hail", condition)) {
+    return("Thunderstorm")
+  } else if (grepl("Fog|Mist|Haze|Partial Fog|Shallow Fog|Patches of Fog", condition)) {
+    return("Fog/Mist")
+  } else if (grepl("Cloudy|Overcast|Fair", condition)) {
+    return("Cloudy")
+  } else if (grepl("Dust|Sand|Smoke|Widespread Dust|Blowing Dust", condition)) {
+    return("Dust/Smoke")
+  } else if (grepl("Wintry Mix|Squalls", condition)) {
+    return("Mixed Precipitation")
+  } else {
+    return("Other")
+  }
+}
+
+
+
+###### Apply the map_weather_conditions function to the Weather_Condition column of the df_2020 dataframe
+
+###### Apply the map_weather_conditions function to the Weather_Condition column of the df_merged_2021 dataframe
+
+
+
+df_2020$Weather_Condition<- sapply(df_2020$Weather_Condition, map_weather_conditions)
+df_merged_2021$Weather_Condition<- sapply(df_merged_2021$Weather_Condition, map_weather_conditions)
+df_2020$Weather_Condition <- as.factor(df_2020$Weather_Condition)
+df_merged_2021$Weather_Condition <- as.factor(df_merged_2021$Weather_Condition)
+```
+
+
+
+
+
+```{r}
+
+# Select all columns from df_2020 except State and Wind_Direction
+# Select all columns from df_merged_2021 except State and Wind_Direction
+df_2020_subset=subset(df_2020, select = -c(State,Wind_Direction))
+df_merged_2021_subset=subset(df_merged_2021,select= -c(State,Wind_Direction))
+```
+
+```{r}
+library(GGally)
+
+```
+
+
+
+```{r}
+###Generate scatterplot matrix for all variable
+
+library(ggplot2)
+pm <- ggpairs(df_2020_subset, mapping = aes(color = Severity),columns = c("Last_Time", "Distance.mi.", "Pressure.in."))
+###Display the scatterplot matrix
+pm+ ggtitle("Scatterplot Matrix of Representative Variables by Severity in 2020 Car Accidents ")
+pm
+```
+
+
+```{r}
+###Generate scatterplot matrix for all variable
+pm1 <- ggpairs(df_merged_2021_subset, mapping = aes(color = Severity),columns = c("Last_Time", "Distance.mi.", "Pressure.in."))
+pm1 + ggtitle("Scatterplot Matrix of Representative Variables by Severity in 2021 Car Accidents ")
+###Display the scatterplot matrix
+pm1
+```
+
+
+
+```{r}
+###SAVE TWO PIGURE TO PNG FILES.
+
+ggsave("scatterplot_matrix_2020.png", pm, width = 10, height = 8)
+ggsave("scatterplot_matrix_2021.png", pm, width = 10, height = 8)
+```
+
+
+

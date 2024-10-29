@@ -1,0 +1,71 @@
+---
+title: "ANLY512-Q1-Q4"
+format: 
+  html:
+    code-fold: true
+editor: visual
+---
+
+In order to investigate the potential differences between car accident data from 2020 and 2021, we conducted a thorough study and analysis of the available data. Our primary goal was to explore whether there exists a discernible gap or discrepancy between the pattern of accident occurrence, such as location, time and weather, during these two years.
+
+## **What are the top 10 states with the most accidents?**
+
+### Top 10 States with the Most Accidents in 2020
+
+```{r}
+state10 = acc_clean20%>%group_by(State)%>%summarise(n=n())%>%arrange(-n)
+state10 = state10[1:10,]
+f <- ggplot(state10, aes(x = reorder(State, -n), y = n))
+f =f+ geom_col(aes(fill = State),show.legend = FALSE)+theme_bw()+ # REMOVE BACKGROUND
+  theme(panel.grid=element_blank())+
+  theme(legend.key = element_rect(fill = "gray95"))+ #CHANGE COLOR PALETTE
+  scale_colour_brewer(palette = "Pastel1")+#CHANGE COLOR PALETTE
+  scale_y_continuous(labels = scales::comma)+
+  labs(title="Top 10 States with the Most Accidents in 2020",
+y="Number of Accidents",
+x="State")
+state10 = acc_clean21%>%group_by(State)%>%summarise(n=n())%>%arrange(-n)
+state10 = state10[1:10,]
+f1 <- ggplot(state10, aes(x = reorder(State, -n), y = n))
+f1 = f1 + geom_col(aes(fill = State),show.legend = FALSE)+theme_bw()+ # REMOVE BACKGROUND
+  theme(panel.grid=element_blank())+
+  theme(legend.key = element_rect(fill = "gray95"))+ #CHANGE COLOR PALETTE
+  scale_colour_brewer(palette = "Pastel1")+#CHANGE COLOR PALETTE
+  scale_y_continuous(labels = scales::comma)+
+  labs(title="Top 10 States with the Most Accidents in 2021",
+y="Number of Accidents",
+x="State")
+grid.arrange(f, f1, ncol = 1)
+
+
+```
+
+## **What are the most common weather conditions associated with accidents?**
+
+boxplot
+
+```{r}
+# Check the mean and median of weather conditions
+summary(acc_clean$Temperature.F.)
+sd(acc_clean$Temperature.F.)
+summary(acc_clean$Wind_Chill.F.)
+sd(acc_clean$Wind_Chill.F.)
+summary(acc_clean$Humidity...)
+sd(acc_clean$Humidity...)
+summary(acc_clean$Pressure.in.)
+sd(acc_clean$Pressure.in.)
+summary(acc_clean$Visibility.mi.)
+sd(acc_clean$Visibility.mi. )
+summary(acc_clean$Wind_Speed.mph.)
+sd(acc_clean$Wind_Speed.mph.)
+summary(acc_clean$Precipitation.in.)
+sd(acc_clean$Precipitation.in.)
+```
+
+## Which highway experiences the highest number of accidents?
+
+```{r}
+acc_clean$Street = as.factor(acc_clean$Street)
+summary(acc_clean$Street)
+
+```

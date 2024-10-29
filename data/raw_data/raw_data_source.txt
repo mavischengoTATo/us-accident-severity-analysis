@@ -1,0 +1,1 @@
+Because the limited size of Github, we attach the link of the data that you can download from, https://www.kaggle.com/datasets/sobhanmoosavi/us-accidents, which is a countrywide car accident dataset.

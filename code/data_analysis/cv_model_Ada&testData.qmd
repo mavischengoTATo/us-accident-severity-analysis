@@ -1,0 +1,521 @@
+---
+title: "Cross-Validation model comprasion"
+author:
+  - name: Nianqing Chen 
+    affiliations:
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    embed-resources: true
+    theme: cosmo
+    code-fold: true
+    code-copy: true
+    code-line-numbers: true
+    number-sections: true
+    highlight-style: github
+reference-location: margin
+---
+
+```{r ,echo=FALSE, message=FALSE, warning=FALSE}
+#### Load necessary package
+library(tidyverse)
+library(plotly)
+library(ggplot2)
+library(caret)
+library(e1071)
+library(randomForest)
+library(nnet)
+library(gbm)
+library(MASS)
+library(rpart)
+library(ROCR)
+library(MLmetrics)
+library(dplyr)
+
+```
+
+
+
+```{r}
+### Read clean data of 2020 year.
+source = read.csv("../../data/clean_data/clean_data_2020.csv") 
+
+```
+
+
+```{r}
+df_new <- subset(source, select = -c(X, ID, Start_Time, End_Time, Start_Lat, Start_Lng, End_Lat, End_Lng, Street, City, County, Zipcode, Precipitation.in., Civil_Twilight, Nautical_Twilight, Astronomical_Twilight, Start_Hour, Start_Month, Start_Date))
+#### select the columns we need in source dataset and name selected 
+
+##### Specify the columns to convert to factors
+cols <- c("Severity","Side","Amenity", "Bump", "Crossing", "Give_Way", "Junction","No_Exit","Railway","Roundabout","Station","Stop","Traffic_Calming","Traffic_Signal","Sunrise_Sunset")
+
+######### Convert the columns to factors
+df_new[cols] <- lapply(df_new[cols], factor)
+
+```
+
+
+```{r}
+#### mapping the weather conditions so reduce the calcualtion load
+#### This function maps different weather conditions to 7 broad categories of weather conditions.
+map_weather_conditions <- function(condition) {
+  if (grepl("Snow|Sleet|Freezing|Ice|Blowing Snow|Drifting Snow", condition)) {
+    return("Snow/Ice")
+  } else if (grepl("Rain|Drizzle|Shower|T-Storm", condition)) {
+    return("Rain")
+  } else if (grepl("Thunder|Hail", condition)) {
+    return("Thunderstorm")
+  } else if (grepl("Fog|Mist|Haze|Partial Fog|Shallow Fog|Patches of Fog", condition)) {
+    return("Fog/Mist")
+  } else if (grepl("Cloudy|Overcast|Fair", condition)) {
+    return("Cloudy")
+  } else if (grepl("Dust|Sand|Smoke|Widespread Dust|Blowing Dust", condition)) {
+    return("Dust/Smoke")
+  } else if (grepl("Wintry Mix|Squalls", condition)) {
+    return("Mixed Precipitation")
+  } else {
+    return("Other")
+  }
+}
+
+
+###### Apply the map_weather_conditions function to the Weather_Condition column of the df_new dataframe
+
+df_new$Weather_Condition<- sapply(df_new$Weather_Condition, map_weather_conditions)
+
+######  Convert the Weather_Condition column to a factor
+df_new$Weather_Condition <- as.factor(df_new$Weather_Condition)
+```
+
+
+```{r}
+# Set the desired number of samples per class
+set.seed(123)
+samples_per_class <- 1000
+
+# Undersample majority class (Severity 2)
+undersampled_df2 <- df_new %>%
+  filter(Severity == "2") %>%
+  sample_n(samples_per_class)
+
+# Oversample minority classes (Severity 1, 3, and 4)
+oversampled_df1 <- df_new %>%
+  filter(Severity == "1") %>%
+  sample_n(samples_per_class, replace = TRUE)
+
+oversampled_df3 <- df_new %>%
+  filter(Severity == "3") %>%
+  sample_n(samples_per_class, replace = TRUE)
+
+oversampled_df4 <- df_new %>%
+  filter(Severity == "4") %>%
+  sample_n(samples_per_class, replace = TRUE)
+
+# Combine the undersampled and oversampled data
+balanced_df <- bind_rows(oversampled_df1, undersampled_df2, oversampled_df3, oversampled_df4)
+
+# Shuffle the balanced data
+balanced_df <- balanced_df[sample(nrow(balanced_df)),]
+
+
+# Define the proportion of training, testing, and validation sets
+train_prop <- 0.7
+test_prop <- 0.2
+valid_prop <- 0.1
+
+# Calculate the number of rows for each set
+train_n <- round(nrow(balanced_df) * train_prop)
+test_n <- round(nrow(balanced_df) * test_prop)
+
+# Split the balanced data into training, testing, and validation sets (same code as before)
+train_data <- balanced_df[1:train_n, ]
+test_data <- balanced_df[(train_n + 1):(train_n + test_n), ]
+valid_data <- balanced_df[(train_n + test_n + 1):nrow(balanced_df), ]
+
+```
+
+
+```{r}
+# Save the training, testing, and validation sets as separate CSV files
+#write.csv(train_data, "train_data.csv", row.names = FALSE)
+#write.csv(test_data, "test_data.csv", row.names = FALSE)
+#write.csv(valid_data, "valid_data.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+
+library(Boruta)
+# Set the seed for reproducibility
+set.seed(123)
+
+# Combine the training and validation sets
+train_valid_data <- bind_rows(train_data, valid_data)
+
+#########Sample a subset of the combined data for feature selection
+sample_size <- 1000
+train_valid_sample <- train_valid_data %>% sample_n(sample_size)
+X_sample <- dplyr::select(train_valid_sample, -Severity) %>% model.matrix(~ . - 1, .)
+y_sample <- train_valid_sample$Severity
+
+# Perform feature selection using the Boruta algorithm
+boruta_results <- Boruta(Severity ~ ., data = train_valid_sample, doTrace = 0)
+
+
+# Get the optimal subset of features including "Weather_Condition"
+
+optimal_features <- getSelectedAttributes(boruta_results, withTentative = TRUE)
+optimal_features <- c(optimal_features, "Weather_Condition")
+
+
+###Create a new data frame with the optimal subset of features
+
+train_valid_optimal <- train_valid_data %>%
+  dplyr::select(Severity, optimal_features)
+```
+
+```{r}
+
+
+# Define the training control for cross-validation
+# 'method' is set to "cv" for k-fold cross-validation, with 'number' indicating the number of folds
+# 'classProbs' is set to TRUE to compute class probabilities for multi-class models
+# 'summaryFunction' is set to 'multiClassSummary' to compute performance metrics for multi-class classification problems
+# 'allowParallel' is set to FALSE to avoid parallel processing, which can cause issues in some environments
+
+train_control <- trainControl(method = "cv", number = 5, classProbs = TRUE, summaryFunction = multiClassSummary, allowParallel = FALSE)
+
+
+
+
+# Modify the class levels of the Severity variable
+# Convert Severity to a factor variable and assign new labels with prefix "S"
+train_valid_optimal$Severity <- factor(train_valid_optimal$Severity, labels = paste0("S", levels(train_valid_optimal$Severity)))
+```
+
+
+```{r}
+# Train the Bagging model and use method "TreeBag"
+bagging_model <- train(Severity ~ ., data = train_valid_optimal, method = "treebag", trControl = train_control)
+bagging_results <- bagging_model$results
+```
+
+
+
+```{r}
+# Train the Naive Bayes model use train_valid_optimal dataset
+naive_bayes_model <- train(Severity ~ ., data = train_valid_optimal, method = "naive_bayes", trControl = train_control)
+naive_bayes_results <- naive_bayes_model$results
+```
+
+
+
+```{r}
+#  Train the Neural Network model use train_valid_optimal dataset
+nnet_model <- train(Severity ~ ., data = train_data, method = "nnet", trControl = train_control, trace = FALSE)
+nnet_results <- nnet_model$results
+```
+
+
+
+```{r}
+# Train the Random Forest model use train_valid_optimal datasets
+random_forest_model <- train(Severity ~ ., data = train_valid_optimal, method = "rf", trControl = train_control)
+random_forest_results <- random_forest_model$results
+
+# Train the Logistic Regression use train_valid_optimal datasets and set method="multinom"
+logistic_regression_model <- train(Severity ~ ., data = train_valid_optimal, method = "multinom", trControl = train_control, trace = FALSE)
+logistic_regression_results <- logistic_regression_model$results
+
+
+```
+
+
+```{r}
+#  Train the Decision Tree use train_valid_optinal datasets and set method="rpart"
+decision_tree_model <- train(Severity ~ ., data = train_valid_optimal, method = "rpart", trControl = train_control)
+decision_tree_results <- decision_tree_model$results
+
+
+
+
+### Load required packages
+library(rpart)
+library(adabag)
+
+
+##### Train an AdaBoost model with 10 boosting iterations
+boost <- boosting(Severity ~ ., data = train_valid_optimal, boos = TRUE, mfinal = 10)
+
+##### Create a contingency table of predicted versus actual Severity levels
+Freq=table(train_valid_data$Severity,boost$class)
+
+Freq
+
+
+```
+
+
+
+
+
+
+```{r}
+################################
+## Model hyperparameter training and tuning
+#################################
+
+#### Define a sequence of shrinkage values
+shrinkage_values <- seq(0, 1, 0.1)
+
+#### Initialize a list to store LDA models and their performance
+lda_models <- list()
+
+# Loop through each shrinkage value
+for (i in 1:length(shrinkage_values)) {
+  shrinkage <- shrinkage_values[i]
+
+##### Train the LDA model with the current shrinkage value
+  lda_model <- lda(Severity ~ ., 
+                   data = train_valid_optimal, 
+                   prior = rep(1/length(unique(train_valid_optimal$Severity)), length(unique(train_valid_optimal$Severity))),
+                   method = "moment",
+                   CV = TRUE,
+                   nu = shrinkage)
+  
+### Store the LDA model and its performance in the list
+  lda_models[[i]] <- list("model" = lda_model, "accuracy" = mean(lda_model$class == train_valid_optimal$Severity))
+}
+
+##### Find the index of the best LDA model based on accuracy
+best_lda_model_index <- which.max(sapply(lda_models, function(x) x$accuracy))
+best_shrinkage_value <- shrinkage_values[best_lda_model_index]
+
+###Get the best LDA model and its corresponding shrinkage value
+best_lda_model <- lda_models[[best_lda_model_index]]$model
+
+
+
+```
+
+
+
+
+
+
+```{r}
+
+################################
+## Model hyperparameter training and tuning
+#################################
+
+
+### Define the hyperparameter grid for the neural network model
+tune_grid <- expand.grid(size = 1:10, decay = seq(0.1, 1, length.out = 10))
+
+### Train the neural network model with the hyperparameter grid and cross-validation
+nnet_model <- train(Severity ~ ., data = train_valid_optimal, method = "nnet", trControl = train_control, tuneGrid = tune_grid)
+
+###Store the results of the tuning process in the nnet_results variable
+nnet_results <- nnet_model$results
+nnet_results
+
+
+```
+
+```{r}
+
+#####Calculate the mean accuracy from the nnet tuning results
+Mean_accuracy_nnet=mean(nnet_results$Accuracy)
+
+###### Select the row with the highest accuracy in the nnet tuning results
+best_nnet_result <- nnet_results[which.max(nnet_results$Accuracy),]
+
+```
+
+
+
+
+
+```{r}
+#### Train an nnet model using the training data with a specified size and decay value
+model <- nnet(Severity ~ ., data = train_data, size = 6,decay=0.9)
+
+#### Use the trained model to make predictions on the validation data
+predictions <- predict(model, newdata =valid_data , type = "class")
+
+
+##### Calculate the accuracy of the predictions by comparing them to the true Severity values in the validation data
+accuracy <- sum(predictions == valid_data$Severity)/nrow(valid_data)
+accuracy
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+####Fine-tune and fit Logistic Regression model using glmnet
+####Fine-tune and fit Logistic Regression model using glmnet
+#####Define the hyperparameter grid for alpha and lambda
+
+logistic_grid <- expand.grid(alpha = c(0, 1), # L1 penalty
+                             lambda = seq(0, 1, 0.1)) # L2 penalty
+
+###### Train the Logistic Regression model using glmnet
+logistic_fit <- train(
+  Severity ~ ., 
+  data = train_valid_optimal, 
+  method = "glmnet",
+  family = "multinomial",
+  trControl = train_control,
+  preProcess = c("center", "scale"),
+  tuneGrid = logistic_grid
+)
+
+
+###Get the best Logistic Regression model parameters
+best_logistic <- logistic_fit$bestTune
+```
+
+
+
+
+
+
+
+
+```{r}
+# Extract the relevant metrics and calculate the average if there are multiple rows
+#Compute the mean AUC and mean balanced accuracy for each model and store the results in separate variables
+
+rf_auc <- mean(random_forest_results$AUC)
+rf_mba <- mean(random_forest_results$Mean_Balanced_Accuracy)
+
+lr_auc <- mean(logistic_regression_results$AUC)
+lr_mba <- mean(logistic_regression_results$Mean_Balanced_Accuracy)
+
+dt_auc <- mean(decision_tree_results$AUC)
+dt_mba <- mean(decision_tree_results$Mean_Balanced_Accuracy)
+
+nnet_auc <- mean(nnet_results$AUC)
+nnet_mba <- mean(nnet_results$Mean_Balanced_Accuracy)
+
+bag_auc <- mean(bagging_results$AUC)
+bag_mba <- mean(bagging_results$Mean_Balanced_Accuracy)
+
+nb_auc <- mean(naive_bayes_results$AUC)
+nb_mba <- mean(naive_bayes_results$Mean_Balanced_Accuracy)
+
+lda_auc <- mean(lda_results$AUC)
+lda_mba <- mean(lda_results$Mean_Balanced_Accuracy)
+
+# Create a data frame with the average metrics
+#Combine the mean AUC and mean balanced accuracy of each model in a data frame
+comparison_df <- data.frame(Model = c("Random Forest", "Logistic Regression", "Decision Tree", "Neural Network", "Bagging", "Naive Bayes", "LDA"),
+                            AUC = c(rf_auc, lr_auc, dt_auc, nnet_auc, bag_auc, nb_auc, lda_auc),
+                            Mean_Balanced_Accuracy = c(rf_mba, lr_mba, dt_mba, nnet_mba, bag_mba, nb_mba, lda_mba))
+
+# Rank the models based on AUC and Mean_Balanced_Accuracy
+#Compute the ranking of each model based on its mean AUC and mean balanced accuracy 
+comparison_df$AUC_Rank <- rank(-comparison_df$AUC)
+comparison_df$Mean_Balanced_Accuracy_Rank <- rank(-comparison_df$Mean_Balanced_Accuracy)
+
+
+```
+
+
+```{r}
+# Load ggplot2
+library(ggplot2)
+
+# Add accuracy percentages to the comparison_df
+comparison_df$Accuracy_Percentage <- c(mean(random_forest_results$Accuracy) * 100,
+                                       mean(logistic_regression_results$Accuracy) * 100,
+                                       mean(decision_tree_results$Accuracy) * 100,
+                                       mean(nnet_results$Accuracy) * 100,
+                                       mean(bagging_results$Accuracy) * 100,
+                                       mean(naive_bayes_results$Accuracy) * 100,
+                                       mean(lda_results$Accuracy) * 100)
+
+# Order the comparison_df by accuracy in descending order
+comparison_df <- comparison_df[order(-comparison_df$Accuracy_Percentage),]
+
+# Create a factor with the ordered models for the x-axis
+comparison_df$Model <- factor(comparison_df$Model, levels = comparison_df$Model)
+
+# Create a bar plot comparing each model's accuracy
+accuracy_plot <- ggplot(comparison_df, aes(x = Model, y = Accuracy_Percentage, fill = Model)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  scale_fill_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Model", y = "Accuracy (%)", title = "Model Accuracy Comparison") +
+  guides(fill = FALSE)
+
+# Print the plot
+accuracy_plot
+
+```
+```{r}
+# Save the accuracy_plot as a PNG file
+ggsave(filename = "accuracy_plot.png", plot = accuracy_plot, width = 10, height = 6, units = "in", dpi = 300)
+
+```
+
+
+```{r}
+library(pROC)
+
+###Load the 'pROC' library
+library(pROC)
+
+### Predict probabilities of severity using the bagging and random forest models
+Predict probabilities of severity using the bagging and random forest models
+treebag_prob <- predict(bfit, test_data, type = "prob")
+rf_prob <- predict(rffit, test_data, type = "prob")
+
+
+### Compute the ROC curve using the predicted probabilities of severity and the actual severity values in the test data
+treebag_roc <- roc(response = test_data$Severity, predictor = treebag_prob[, 2])
+rf_roc <- roc(response = test_data$Severity, predictor = rf_prob[, 2])
+
+
+###Compute the area under the ROC curve (AUC) for each model
+treebag_auc <- auc(treebag_roc)
+rf_auc <- auc(rf_roc)
+```
+
+
+
+
+```{r}
+# Predict probabilities for LDA and Logistic Regression models on test_data
+lda_prob <- predict(best_lda_model_no_cv, test_data, type = "posterior")
+logistic_prob <- predict(logistic_fit, newdata = test_data, type = "prob")
+```
+
+
+```{r}
+# Extract the posterior probabilities for the LDA model
+lda_posterior_prob <- lda_prob$posterior
+# Calculate ROC and AUC for LDA and Logistic Regression models
+lda_roc <- roc(response = test_data$Severity, predictor = lda_posterior_prob[, 2])
+# Calculate ROC and AUC for LDA and Logistic Regression models
+logistic_roc <- roc(response = test_data$Severity, predictor = logistic_prob[, 2])
+lda_auc <- auc(lda_roc)
+logistic_auc <- auc(logistic_roc)
+```
+
+
+
+
+

@@ -1,0 +1,228 @@
+---
+title: "Model fine tuning"
+author:
+  - name: Group8
+    affiliations:
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    embed-resources: true
+    theme: cosmo
+    code-fold: true
+    code-copy: true
+    code-line-numbers: true
+    number-sections: true
+    highlight-style: github
+reference-location: margin
+---
+
+```{r}
+# Load required libraries
+library(MASS)
+```
+
+## Fine tuing models
+```{r}
+# Re-run model with best hyperparameters bagging
+set.seed(123)
+bfit <- train(
+    Severity ~ ., 
+    data = train_valid_optimal, 
+    method = "treebag",
+    minbucket = 2,
+    trControl = train_control,
+    importance = TRUE,
+    maxdepth = 5,
+    minsplit = 5,
+  )
+```
+
+```{r}
+rffit <- train(
+    Severity ~ ., 
+    data = train_valid_optimal, 
+    method = "rf",
+    trControl = train_control,
+    importance = TRUE,
+    .mtry= 33,
+    ntree = 200,
+    nodesize = 1
+  )
+```
+
+```{r}
+treebag_prob <- predict(bfit, test_data, type = "prob")
+rf_prob <- predict(rffit, test_data, type = "prob")
+
+library(pROC)
+
+treebag_roc <- roc(response = test_data$Severity, predictor = treebag_prob[, 2])
+rf_roc <- roc(response = test_data$Severity, predictor = rf_prob[, 2])
+
+treebag_auc <- auc(treebag_roc)
+rf_auc <- auc(rf_roc)
+
+treebag_roc_data <- data.frame(
+  FPR = 1- treebag_roc$specificities,
+  TPR = treebag_roc$sensitivities,
+  Model = "Treebag"
+)
+
+rf_roc_data <- data.frame(
+  FPR = 1 - rf_roc$specificities,
+  TPR = rf_roc$sensitivities,
+  Model = "Random Forest"
+)
+
+roc_data <- rbind(treebag_roc_data, rf_roc_data)
+
+```
+
+```{r}
+# Fine tunning lda models
+
+# Define a range of shrinkage values
+shrinkage_values <- seq(0, 1, 0.1)
+
+# Initialize a list to store LDA models and their performance
+lda_models <- list()
+
+# Loop through each shrinkage value
+for (i in 1:length(shrinkage_values)) {
+  shrinkage <- shrinkage_values[i]
+
+  # Train the LDA model with the current shrinkage value
+  lda_model <- lda(Severity ~ ., 
+                   data = train_valid_optimal, 
+                   prior = rep(1/length(unique(train_valid_optimal$Severity)), length(unique(train_valid_optimal$Severity))),
+                   method = "moment",
+                   CV = TRUE,
+                   nu = shrinkage)
+  
+  # Store the LDA model and its performance in the list
+  lda_models[[i]] <- list("model" = lda_model, "accuracy" = mean(lda_model$class == train_valid_optimal$Severity))
+}
+
+# Find the best LDA model
+best_lda_model_index <- which.max(sapply(lda_models, function(x) x$accuracy))
+best_lda_model <- lda_models[[best_lda_model_index]]$model
+best_shrinkage_value <- shrinkage_values[best_lda_model_index]
+
+```
+
+```{r}
+# Retrain the LDA model with the best shrinkage value without using cross-validation
+best_lda_model_no_cv <- lda(Severity ~ ., 
+                            data = train_valid_optimal, 
+                            prior = rep(1/length(unique(train_valid_optimal$Severity)), length(unique(train_valid_optimal$Severity))),
+                            method = "moment",
+                            nu = best_shrinkage_value)
+
+```
+
+```{r}
+# Fine-tune and fit Logistic Regression model
+logistic_grid <- expand.grid(alpha = c(0, 1), # L1 penalty
+                             lambda = seq(0, 1, 0.1)) # L2 penalty
+
+logistic_fit <- train(
+  Severity ~ ., 
+  data = train_valid_optimal, 
+  method = "glmnet",
+  family = "multinomial",
+  trControl = train_control,
+  preProcess = c("center", "scale"),
+  tuneGrid = logistic_grid
+)
+
+# Best Logistic Regression model parameters
+best_logistic <- logistic_fit$bestTune
+```
+
+```{r}
+treebag_prob <- predict(bfit, test_data, type = "prob")
+rf_prob <- predict(rffit, test_data, type = "prob")
+
+# Load the pROC package
+library(pROC)
+
+# Calculate ROC curves for treebag and random forest models
+treebag_roc <- roc(response = test_data$Severity, predictor = treebag_prob[, 2])
+rf_roc <- roc(response = test_data$Severity, predictor = rf_prob[, 2])
+
+# Calculate AUC values for treebag and random forest models
+treebag_auc <- auc(treebag_roc)
+rf_auc <- auc(rf_roc)
+
+# Convert ROC curve data to data frames for plotting
+treebag_roc_data <- data.frame(
+  FPR = 1- treebag_roc$specificities,
+  TPR = treebag_roc$sensitivities,
+  Model = "Treebag"
+)
+
+rf_roc_data <- data.frame(
+  FPR = 1 - rf_roc$specificities,
+  TPR = rf_roc$sensitivities,
+  Model = "Random Forest"
+)
+
+# Combine ROC curve data into a single data frame for plotting
+roc_data <- rbind(treebag_roc_data, rf_roc_data)
+
+```
+
+
+```{r}
+# Predict probabilities for LDA and Logistic Regression models on test_data
+lda_prob <- predict(best_lda_model_no_cv, test_data, type = "posterior")
+logistic_prob <- predict(logistic_fit, newdata = test_data, type = "prob")
+```
+
+
+```{r}
+# Extract the posterior probabilities for the LDA model
+lda_posterior_prob <- lda_prob$posterior
+
+# Calculate ROC and AUC for LDA and Logistic Regression models
+lda_roc <- roc(response = test_data$Severity, predictor = lda_posterior_prob[, 2])
+# Calculate ROC and AUC for LDA and Logistic Regression models
+logistic_roc <- roc(response = test_data$Severity, predictor = logistic_prob[, 2])
+
+lda_auc <- auc(lda_roc)
+logistic_auc <- auc(logistic_roc)
+```
+
+```{r}
+# Combine ROC data
+lda_roc_data <- data.frame(
+  FPR = 1 - lda_roc$specificities,
+  TPR = lda_roc$sensitivities,
+  Model = "LDA"
+)
+
+logistic_roc_data <- data.frame(
+  FPR = 1 - logistic_roc$specificities,
+  TPR = logistic_roc$sensitivities,
+  Model = "Logistic Regression"
+)
+```
+
+```{r}
+library(ggplot2)
+roc_data <- rbind(treebag_roc_data, rf_roc_data, lda_roc_data, logistic_roc_data)
+
+
+roc_plot <- ggplot(roc_data, aes(x = FPR, y = TPR, color = Model)) +
+  geom_line(linewidth = 1) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  labs(title = "ROC Curves for Treebag, Random Forest, LDA, and Logistic Regression Models",
+       x = "False Positive Rate (1 - Specificity)",
+       y = "True Positive Rate (Sensitivity)") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+roc_plot
+ggsave(filename = "roc.png", plot = roc_plot, width = 10, height = 6, units = "in", dpi = 300)
+```

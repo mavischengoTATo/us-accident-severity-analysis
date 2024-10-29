@@ -1,0 +1,1 @@
+Here, with the Github upload limit, we divide our cleaned dataset into three parts, clean_data_2020.csv.zip is the US Accidents in 2020, clean_data_2021_01.csv.zip is the uS Accidents in the first half year of 2021 while clean_data_2021_02.csv.zip is the uS Accidents in the left half year of 2021.
